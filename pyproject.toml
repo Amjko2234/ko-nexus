@@ -1,0 +1,26 @@
+[project]
+dependencies = []
+name = "amj-dependency-injector"
+version = "1.0.2"
+description = """
+A dependency injector that follows containerization approach, wherein
+groups of dependencies must be defined inside a `Container` that will
+be initialized by the entry point code. Instances as lazily-loaded,
+therefore specifying the dependency callable must be inside a
+`lambda` function or somewhat similar in runtime.
+"""
+authors = [{ name = "Amjko2234", email = "amjko2234@gmail.com" }]
+requires-python = ">=3.14.0"
+
+[tool.setuptools.package-data]
+amj_dependency_injector = ["py.typed"]
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
