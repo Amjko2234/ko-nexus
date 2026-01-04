@@ -1,19 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
-dependencies = []
-name = "amj-dependency-injector"
+name = "ko-nexus"
 version = "1.0.2"
-description = """
-A dependency injector that follows containerization approach, wherein
-groups of dependencies must be defined inside a `Container` that will
-be initialized by the entry point code. Instances as lazily-loaded,
-therefore specifying the dependency callable must be inside a
-`lambda` function or somewhat similar in runtime.
-"""
+description = "Amjko's dependency injection container for Python."
+readme = "README.md"
 authors = [{ name = "Amjko2234", email = "amjko2234@gmail.com" }]
+license = { file = "MIT" }
 requires-python = ">=3.14.0"
+dependencies = []
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Inteded Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+]
+    
+[project.urls]
+Homepage = "https://github.com/Amjko2234/ko-nexus"
+Repository = "https://github.com/Amjko2234/ko-nexus"
+Issues = "https://github.com/Amjko2234/ko-nexus/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
 
 [tool.setuptools.package-data]
-amj_dependency_injector = ["py.typed"]
+ko_nexus = ["py.typed"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+pythonPlatform = "Linux"
 
 [tool.black]
 line-length = 88
@@ -24,3 +58,8 @@ line_length = 88
 
 [tool.ruff]
 line-length = 88
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
