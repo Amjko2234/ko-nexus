@@ -1,6 +1,7 @@
 from .containers import Container
 from .exceptions import (
     DiCallableError,
+    DiContainerError,
     DiDependencyError,
     DiUninitializedResourceError,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "resource",
     # Exceptions
     "DiCallableError",
+    "DiContainerError",
     "DiDependencyError",
     "DiUninitializedResourceError",
 ]

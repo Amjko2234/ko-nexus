@@ -8,6 +8,9 @@ from typing import Literal, TypeAlias, override
 
 # fmt: off
 Layer: TypeAlias = Literal[ # Literals based from: "Where did it happen?"
+    # Container layer
+    "CONTAINER",
+
     # Provider layer
     "CALLABLE",     # Any callable that is a dependency
     "DEPENDENCY",   # Missing/unspecified, required dependencies
@@ -125,6 +128,13 @@ class DiCallableError(_BaseException):
     default_layer: Layer = "CALLABLE"
     default_category: Category = "UNEXPECTED"
     default_severity: Severity = "ERROR"
+    recoverable: bool | None = False
+
+
+class DiContainerError(_BaseException):
+    default_layer: Layer = "CONTAINER"
+    default_category: Category = "USAGE"
+    default_severity: Severity = "CRITICAL"
     recoverable: bool | None = False
 
 

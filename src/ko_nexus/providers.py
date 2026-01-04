@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Generic, Literal, TypeVar, overload, override
 
+from ._sentinels import UNSET as _UNSET
+from ._sentinels import UnsetType as _UnsetT
 from ._types import AsyncCleanupType, AsyncFactoryType, CleanupType, FactoryType
 from .exceptions import DiCallableError, DiDependencyError, DiUninitializedResourceError
 
@@ -19,11 +21,13 @@ class _AsyncProvider(ABC, Generic[T]):
 
     async def __call__(self) -> T:
         """Allow calling provider directly to resolve."""
+
         return await self.resolve()
 
     @abstractmethod
     async def resolve(self) -> T:
         """Resolve and return the provided value."""
+
         pass
 
 
@@ -32,11 +36,13 @@ class _Provider(ABC, Generic[T]):
 
     def __call__(self) -> T:
         """Allow calling provider directly to resolve."""
+
         return self.resolve()
 
     @abstractmethod
     def resolve(self) -> T:
         """Resolve and return the provided value."""
+
         pass
 
 
@@ -58,7 +64,7 @@ class Singleton(_Provider[T]):
     >>> svc1: Service = container.service_singleton()
     >>> svc2: Service = container.service_singleton()
     >>> assert svc1 is svc2
-    >>> # PASSES
+    PASSES
 
     Note:
         If the object itself is a singleton, then omit the implementation if it is only
@@ -71,33 +77,29 @@ class Singleton(_Provider[T]):
         * `DiCallableError`: An unexpected error occured when calling the factory.
     """
 
-    def __init__(self, factory: Callable[[], T]) -> None:
+    def __init__(self, factory: Callable[[], T], /) -> None:
         if not hasattr(factory, "__name__"):
             raise TypeError(f"`factory` must be a function, not type `{type(factory)}`")
         if factory.__name__ == "<lambda>":
             raise TypeError("`Lambda` is not supported. Please use a named function")
 
         self.factory: FactoryType[T] = factory
-        self._instance: T | None = None
+        self._instance: T | _UnsetT = _UNSET
         self._resolved: bool = False
-
-    @override
-    def __call__(self) -> T:
-        return self.resolve()
 
     @override
     def resolve(self) -> T:
         if not self._resolved:
             self._instance = _sync_catch_run(
-                func=self.factory, err_svc_name=self.__class__.__name__
+                self.factory, get_return=True, err_svc_name=self.__class__.__name__
             )
             self._resolved = True
 
-        if self._instance is None:
+        if isinstance(self._instance, _UnsetT):
             raise RuntimeError(
                 f"For unknown reasons, internal instance `{self._instance}`"
                 + f" of dependency container `{self.__class__.__name__}`"
-                + " is still `None` after instantiating the factory."
+                + f" is still `{self._instance}` after instantiating the factory."
             )
         return self._instance
 
@@ -117,7 +119,7 @@ class AsyncSingleton(_AsyncProvider[T]):
     >>> svc1: AsyncService = await container.async_svc_singleton()
     >>> svc2: AsyncService = await container.async_svc_singleton()
     >>> assert svc1 is svc2
-    >>> # PASSES
+    PASSES
 
     Note:
         If the object itself is a singleton, then omit the implementation if it is only
@@ -126,37 +128,31 @@ class AsyncSingleton(_AsyncProvider[T]):
 
     Raises:
         * `RuntimeError`: Internal unexpected bugs.
-        * `TypeError`: Factory does not have `__name__` or is a lambda function.
+        * `TypeError`: Factory does not have `__name__`.
         * `DiCallableError`: An unexpected error occured when calling the factory.
     """
 
-    def __init__(self, factory: Callable[[], Awaitable[T]]) -> None:
+    def __init__(self, factory: Callable[[], Awaitable[T]], /) -> None:
         if not hasattr(factory, "__name__"):
             raise TypeError(f"`factory` must be a function, not type `{type(factory)}`")
-        if factory.__name__ == "<lambda>":
-            raise TypeError("`Lambda` is not supported. Please use a named function")
 
         self.factory: AsyncFactoryType[T] = factory
-        self._instance: T | None = None
+        self._instance: T | _UnsetT = _UNSET
         self._resolved: bool = False
-
-    @override
-    async def __call__(self) -> T:
-        return await self.resolve()
 
     @override
     async def resolve(self) -> T:
         if not self._resolved:
             self._instance = await _async_catch_run(
-                func=self.factory, err_svc_name=self.__class__.__name__
+                self.factory, get_return=True, err_svc_name=self.__class__.__name__
             )
             self._resolved = True
 
-        if self._instance is None:
+        if isinstance(self._instance, _UnsetT):
             raise RuntimeError(
                 f"For unknown reasons, internal instance `{self._instance}`"
                 + f" of dependency container `{self.__class__.__name__}`"
-                + " is still `None` after instantiating the factory."
+                + f" is still `{self._instance}` after instantiating the factory."
             )
         return self._instance
 
@@ -174,7 +170,7 @@ class Factory(_Provider[T]):
     >>> svc1: Service = container.service_factory()
     >>> svc2: Service = container.service_factory()
     >>> assert svc1 is not svc2
-    >>> # PASSES
+    PASSES
 
     Note:
         The callable object itself SHOULD NOT be a singleton, as internally the
@@ -186,7 +182,7 @@ class Factory(_Provider[T]):
         * `DiCallableError`: An unexpected error occured when calling the factory.
     """
 
-    def __init__(self, factory: Callable[[], T]) -> None:
+    def __init__(self, factory: Callable[[], T], /) -> None:
         if not hasattr(factory, "__name__"):
             raise TypeError(f"`factory` must be a function, not type `{type(factory)}`")
         if factory.__name__ == "<lambda>":
@@ -195,13 +191,9 @@ class Factory(_Provider[T]):
         self.factory: FactoryType[T] = factory
 
     @override
-    def __call__(self) -> T:
-        return self.resolve()
-
-    @override
     def resolve(self) -> T:
         return _sync_catch_run(
-            func=self.factory, get_return=True, err_svc_name=self.__class__.__name__
+            self.factory, get_return=True, err_svc_name=self.__class__.__name__
         )
 
 
@@ -220,7 +212,7 @@ class AsyncFactory(_AsyncProvider[T]):
     >>> svc1: AsyncService = await container.async_svc_factory()
     >>> svc2: AsyncService = await container.async_svc_factory()
     >>> assert svc1 is not svc2
-    >>> # PASSES
+    PASSES
 
     Note:
         The callable object itself SHOULD NOT be a singleton, as internally the
@@ -228,26 +220,20 @@ class AsyncFactory(_AsyncProvider[T]):
         It does not handle the call.
 
     Raises:
-        * `TypeError`: Factory does not have `__name__` or is a lambda function.
+        * `TypeError`: Factory does not have `__name__`.
         * `DiCallableError`: An unexpected error occured when calling the factory.
     """
 
-    def __init__(self, factory: Callable[[], Awaitable[T]]) -> None:
+    def __init__(self, factory: Callable[[], Awaitable[T]], /) -> None:
         if not hasattr(factory, "__name__"):
             raise TypeError(f"`factory` must be a function, not type `{type(factory)}`")
-        if factory.__name__ == "<lambda>":
-            raise TypeError("`Lambda` is not supported. Please use a named function")
 
         self.factory: AsyncFactoryType[T] = factory
 
     @override
-    async def __call__(self) -> T:
-        return await self.resolve()
-
-    @override
     async def resolve(self) -> T:
         return await _async_catch_run(
-            func=self.factory, get_return=True, err_svc_name=self.__class__.__name__
+            self.factory, get_return=True, err_svc_name=self.__class__.__name__
         )
 
 
@@ -274,6 +260,7 @@ class Resource(_Provider[T]):
         *,
         singleton: bool = True,
     ) -> None:
+        # Ensure initializer callable is not a lambda
         if not hasattr(initializer, "__name__"):
             raise TypeError(
                 f"`factory` must be a function, not type `{type(initializer)}`"
@@ -282,22 +269,40 @@ class Resource(_Provider[T]):
             raise TypeError("`Lambda` is not supported. Please use a named function")
 
         self.init_func: FactoryType[T] | AsyncFactoryType[T] = initializer
+
+        # Ensure cleanup callable is not a lambda
+        if cleanup is not None:
+            if not hasattr(cleanup, "__name__"):
+                raise TypeError(
+                    f"`factory` must be a function, not type `{type(cleanup)}`"
+                )
+            if cleanup.__name__ == "<lambda>":
+                raise TypeError(
+                    "`Lambda` is not supported. Please use a named function"
+                )
+
         self.cleanup_func: CleanupType[T] | AsyncCleanupType[T] = cleanup
-        self.resource: T | None = None
+
+        self.resource: T | _UnsetT = _UNSET
         self.async_resource: Awaitable[T] | None = None
 
         self._singleton: bool = singleton
         self._resolved: bool = False
 
-    def is_resoved(self) -> bool:
+    def is_resolved(self) -> bool:
         return self._resolved
 
     def get(self) -> T:
-        if not self._resolved or self.resource is None:
+        if (self._singleton and self._resolved) and not isinstance(
+            self.resource, _UnsetT
+        ):
+            return self.resource
+        elif not isinstance(self.resource, _UnsetT):
+            return self.resource
+        else:
             raise DiUninitializedResourceError(
                 f"Resource `{self.resource.__class__.__name__}` is not initialized",
             )
-        return self.resource
 
     @override
     def resolve(self) -> T:
@@ -305,37 +310,35 @@ class Resource(_Provider[T]):
         Initialize and return the resource (sync only).
 
         Raises:
+            * `TypeError`: Using sync methods on an async factory.
             * `RuntimeError`:
                Internal unexpected bugs or using sync-only method on async resources.
             * `DiCallableError`: An unexpected error occured when calling the factory.
         """
 
+        if self._singleton and not isinstance(self.resource, _UnsetT):
+            return self.resource
+
         if inspect.iscoroutinefunction(self.init_func):
-            raise RuntimeError(
-                "Cannot use sync `resolve()` on an async `Resource`."
+            raise TypeError(
+                "Cannot call sync `resolve()` on an async `Resource`."
                 + " Use `await Resource.async_resolve()` instead."
             )
 
-        if self._singleton:
-            if not self._resolved:
-                self.resource = _sync_catch_run(  # pyright: ignore[reportAttributeAccessIssue]
-                    func=self.init_func,
-                    get_return=True,
-                    err_svc_name=self.__class__.__name__,
-                )
-                self._resolved = True
-        else:
-            self.resource = _sync_catch_run(  # pyright: ignore[reportAttributeAccessIssue]
-                func=self.init_func,
-                get_return=True,
-                err_svc_name=self.__class__.__name__,
-            )
+        self.resource = _sync_catch_run(  # pyright: ignore[reportAttributeAccessIssue]
+            self.init_func,
+            get_return=True,
+            err_svc_name=self.__class__.__name__,
+        )
 
-        if self.resource is None:
+        if self._singleton and not self._resolved:
+            self._resolved = True
+
+        if isinstance(self.resource, _UnsetT):
             raise RuntimeError(
                 f"For unknown reasons, internal instance `{self.resource.__class__.__name__}`"
                 + f" of dependency container `{self.__class__.__name__}`"
-                + " is still `None` after instantiating the factory."
+                + f" is still `{self.resource}` after instantiating the factory."
             )
         return self.resource
 
@@ -348,40 +351,30 @@ class Resource(_Provider[T]):
             * `DiCallableError`: An unexpected error occured when calling the factory.
         """
 
-        if self._singleton:
-            if not self._resolved:
-                if inspect.iscoroutinefunction(self.init_func):
-                    self.resource = await _async_catch_run(
-                        func=self.init_func,
-                        get_return=True,
-                        err_svc_name=self.__class__.__name__,
-                    )
-                else:
-                    self.resource = _sync_catch_run(  # pyright: ignore[reportAttributeAccessIssue]
-                        func=self.init_func,
-                        get_return=True,
-                        err_svc_name=self.__class__.__name__,
-                    )
-                self._resolved = True
-        else:
-            if inspect.iscoroutinefunction(self.init_func):
-                self.resource = await _async_catch_run(
-                    func=self.init_func,
-                    get_return=True,
-                    err_svc_name=self.__class__.__name__,
-                )
-            else:
-                self.resource = _sync_catch_run(  # pyright: ignore[reportAttributeAccessIssue]
-                    func=self.init_func,
-                    get_return=True,
-                    err_svc_name=self.__class__.__name__,
-                )
+        if self._singleton and not isinstance(self.resource, _UnsetT):
+            return self.resource
 
-        if self.resource is None:
+        if inspect.iscoroutinefunction(self.init_func):
+            self.resource = await _async_catch_run(
+                self.init_func,
+                get_return=True,
+                err_svc_name=self.__class__.__name__,
+            )
+        else:
+            self.resource = _sync_catch_run(  # pyright: ignore[reportAttributeAccessIssue]
+                self.init_func,
+                get_return=True,
+                err_svc_name=self.__class__.__name__,
+            )
+
+        if self._singleton and not self._resolved:
+            self._resolved = True
+
+        if isinstance(self.resource, _UnsetT):
             raise RuntimeError(
                 f"For unknown reasons, internal instance `{self.resource.__class__.__name__}`"
                 + f" of dependency container `{self.__class__.__name__}`"
-                + " is still `None` after instantiating the factory."
+                + f" is still `{self.resource}` after instantiating the factory."
             )
         return self.resource
 
@@ -390,23 +383,26 @@ class Resource(_Provider[T]):
         Shut down the resource (sync only).
 
         Raises:
-            * `RuntimeError`: Using sync-only method on async resources.
+            * `TypeError`: Attempt to call an async `Resource` in a synchronous context.
             * `DiCallableError`: An unexpected error occured when calling the factory.
         """
+
         if inspect.iscoroutinefunction(self.cleanup_func):
-            raise RuntimeError(
-                "Cannot use sync `shutdown()` on an async `Resource`."
+            raise TypeError(
+                "Cannot call sync `shutdown()` on an async `Resource`."
                 + " Use `await Resource.async_shutdown()` instead."
             )
 
-        if self._resolved and self.resource is not None:
-            if self.cleanup_func is not None:
-                _sync_catch_run(
-                    func=lambda: self.cleanup_func(self.resource),  # pyright: ignore[reportOptionalCall, reportArgumentType]
-                    err_svc_name=self.__class__.__name__,
-                )
-            self.resource = None
+        if (self.cleanup_func is not None) and not isinstance(self.resource, _UnsetT):
+            _sync_catch_run(
+                lambda: self.cleanup_func(self.resource),  # pyright: ignore[reportOptionalCall, reportArgumentType]
+                get_return=False,
+                err_svc_name=self.__class__.__name__,
+            )
+
+        if self._singleton and self._resolved:
             self._resolved = False
+        self.resource = _UNSET
 
     async def async_shutdown(self) -> None:
         """
@@ -416,40 +412,37 @@ class Resource(_Provider[T]):
             * `DiCallableError`: An unexpected error occured when calling the factory.
         """
 
-        if self._resolved and self.resource is not None:
-            if self.cleanup_func is not None:
-                if inspect.iscoroutinefunction(self.cleanup_func):
-                    await _async_catch_run(
-                        func=lambda: self.cleanup_func(self.resource),  # pyright: ignore[reportOptionalCall, reportArgumentType]
-                        err_svc_name=self.__class__.__name__,
-                    )
-                else:
-                    _sync_catch_run(
-                        func=lambda: self.cleanup_func(self.resource),  # pyright: ignore[reportOptionalCall, reportArgumentType]
-                        err_svc_name=self.__class__.__name__,
-                    )
-            self.resource = None
+        if (self.cleanup_func is not None) and not isinstance(self.resource, _UnsetT):
+            if inspect.iscoroutinefunction(self.cleanup_func):
+                # Basedpyright somehow still thinks that `cleanup_func()` is either
+                # sync or async callable
+                await _async_catch_run(  # pyright: ignore[reportCallIssue]
+                    lambda: self.cleanup_func(self.resource),  # pyright: ignore[reportOptionalCall, reportArgumentType]
+                    get_return=False,
+                    err_svc_name=self.__class__.__name__,
+                )
+            else:
+                _sync_catch_run(
+                    lambda: self.cleanup_func(self.resource),  # pyright: ignore[reportOptionalCall, reportArgumentType]
+                    get_return=False,
+                    err_svc_name=self.__class__.__name__,
+                )
+
+        if self._singleton and self._resolved:
             self._resolved = False
+        self.resource = _UNSET
 
 
 class Dependency(_Provider[T]):
     """
     Provider placeholder for external dependencies that must be injected.
-
-    Raises:
-    * RuntimeError: Internal unexpected bugs.
-    * DiDependencyError:
-      Attempt to acquire value before initializing the dependencies.
+    No usage example is provided, as dependencies are injected by the `Container`.
     """
 
     def __init__(self, name: str | None = None) -> None:
-        self._value: T | None = None
+        self._value: T | _UnsetT = _UNSET
         self._provided: bool = False
         self.name: str | None = name
-
-    @override
-    def __call__(self) -> T:
-        return self.resolve()
 
     def provide(self, value: T) -> None:
         """Inject the dependency value."""
@@ -462,16 +455,25 @@ class Dependency(_Provider[T]):
 
     @override
     def resolve(self) -> T:
+        """
+        Returns injected value by it's parent container.
+
+        Raises:
+            * `RuntimeError`: Internal unexpected bugs.
+            * `DiDependencyError`:
+            Attempt to acquire value before initializing the dependencies.
+        """
+
         if not self._provided:
             raise DiDependencyError(
                 f"Dependency `{self.name or 'unnamed'}` has not been provided",
             )
 
-        if self._value is None:
+        if isinstance(self._value, _UnsetT):
             raise RuntimeError(
                 f"For unknown reasons, internal instance `{self._value.__class__.__name__}`"
                 + f" of dependency container `{self.__class__.__name__}`"
-                + " is still `None` after instantiating the factory."
+                + f" is still `{self._value}` after instantiating the factory."
             )
         return self._value
 
@@ -481,24 +483,28 @@ class Dependency(_Provider[T]):
 # =====================================================================================
 
 
-def singleton(factory: Callable[[], T]) -> Singleton[T]:
+def singleton(factory: Callable[[], T], /) -> Singleton[T]:
     """Create a `Singleton` provider."""
+
     return Singleton[T](factory)
 
 
-def async_singleton(factory: Callable[[], Awaitable[T]]) -> AsyncSingleton[T]:
+def async_singleton(factory: Callable[[], Awaitable[T]], /) -> AsyncSingleton[T]:
     """Create an `AsyncSingleton` provider."""
+
     return AsyncSingleton[T](factory)
 
 
-def factory(factory_func: Callable[[], T]) -> Factory[T]:
+def factory(factory_func: Callable[[], T], /) -> Factory[T]:
     """Create a `Factory` provider."""
-    return Factory[T](factory=factory_func)
+
+    return Factory[T](factory_func)
 
 
-def async_factory(factory_func: Callable[[], Awaitable[T]]) -> AsyncFactory[T]:
+def async_factory(factory_func: Callable[[], Awaitable[T]], /) -> AsyncFactory[T]:
     """Create an `AsyncFactory` provider."""
-    return AsyncFactory[T](factory=factory_func)
+
+    return AsyncFactory[T](factory_func)
 
 
 def resource(
@@ -508,11 +514,13 @@ def resource(
     singleton: bool = True,
 ) -> Resource[T]:
     """Create a `Resource` provider."""
+
     return Resource[T](initializer, cleanup, singleton=singleton)
 
 
 def dependency(name: str = "") -> Dependency[T]:
     """Create a `Dependency` placeholder."""
+
     return Dependency[T](name)
 
 
@@ -522,59 +530,90 @@ def dependency(name: str = "") -> Dependency[T]:
 
 
 class LazyRef(Generic[T]):
-    def __init__(self) -> None:
-        self._value: T | None = None
+    """
+    Allow lazy references of objects to delay the resolution of the object.
 
-    def set(self, v: T) -> T:
+    Intended to be used in cases that require the object to be defined inside the scope
+    of a class or a class instance without yet instantiating the object. Reasons may
+    vary as to why the object must be instantiated later, but most common whilst
+    testing is wanting the object's resources to be initialized later--not as soon
+    as the class's `__init__` run.
+
+    Example Usage:
+    >>> class Service:
+    >>>     def __init__(self) -> None:
+    >>>         self.container = ServiceContainer()
+    >>>         self.log_container = self.container.logger
+    >>>         # or `self.container.logger()` depending on how you configured it
+    >>>
+    >>>         # Define later the actual logger to avoid initializing its resources
+    >>>         # on the spot
+    >>>         self.log = LazyRef[Logger]()
+    >>>
+    >>>     def start(self) -> None:
+    >>>         # Start lifecycle of logging system because the `logger` container
+    >>>         # is responsible for its resources
+    >>>         self.logger.init_resources()
+    >>>         # Set boot logger
+    >>>         self.log.set(v=self.logger.boot())
+    >>>
+    >>>     def do_something(self) -> None:
+    >>>         log: Logger = self.log.get()
+    >>>         log.info("Did something")
+    [YYYY:MM:DD HH:MM:SS] [INFO    ] [19  @BOOT::do_something] Did something
+    """
+
+    def __init__(self) -> None:
+        self._value: T | _UnsetT = _UNSET
+
+    def set(self, v: T, /) -> T:
+        """Set the value."""
+
         self._value = v
         return self._value
 
     def get(self) -> T:
         """
+        Get the value.
+
         Raises:
         * RuntimeError: Failure to get value before it's initialized
         """
-        if self._value is None:
+
+        if isinstance(self._value, _UnsetT):
             raise RuntimeError(
-                f"Tried to access `{self._value}` when it's still undefined"
+                f"Tried to access `{self._value}` when it's still `{self._value}`"
             )
         return self._value
 
 
 # =====================================================================================
-#   Private helper
+#   Private helpers
 # =====================================================================================
 
 
 @overload
 def _sync_catch_run(
     func: Callable[[], T],
-    *,
+    /,
     get_return: Literal[True],
     err_svc_name: str = ...,
 ) -> T: ...
 @overload
 def _sync_catch_run(
     func: Callable[[], T],
-    *,
+    /,
     get_return: Literal[False],
     err_svc_name: str = ...,
 ) -> None: ...
-@overload
 def _sync_catch_run(
     func: Callable[[], T],
-    *,
-    err_svc_name: str = ...,
-) -> None: ...
-def _sync_catch_run(
-    func: Callable[[], T],
-    *,
-    get_return: bool = False,
+    /,
+    get_return: bool,
     err_svc_name: str = "unknown",
 ) -> None | T:
-    """
-    Run the `Callable` and raise `DiCallableError` if the callable raises any errors.
-    """
+    """Run the callable and translate any errors from it to `DiCallableError`."""
+
     try:
         if get_return:
             return func()
@@ -591,32 +630,25 @@ def _sync_catch_run(
 @overload
 async def _async_catch_run(
     func: Callable[[], Awaitable[T]],
-    *,
+    /,
     get_return: Literal[True],
     err_svc_name: str = ...,
 ) -> T: ...
 @overload
 async def _async_catch_run(
     func: Callable[[], Awaitable[T]],
-    *,
+    /,
     get_return: Literal[False],
     err_svc_name: str = ...,
 ) -> None: ...
-@overload
 async def _async_catch_run(
     func: Callable[[], Awaitable[T]],
-    *,
-    err_svc_name: str = ...,
-) -> None: ...
-async def _async_catch_run(
-    func: Callable[[], Awaitable[T]],
-    *,
-    get_return: bool = False,
+    /,
+    get_return: bool,
     err_svc_name: str = "unknown",
 ) -> None | T:
-    """
-    Run the `Callable` and raise `DiCallableError` if the callable raises any errors.
-    """
+    """Run the callable and translate any errors from it to `DiCallableError`."""
+
     try:
         if get_return:
             return await func()
