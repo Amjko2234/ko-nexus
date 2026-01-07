@@ -1,46 +1,34 @@
 from .containers import Container
 from .exceptions import (
+    DiAutoRegistrationError,
     DiCallableError,
+    DiCircularDependencyError,
     DiContainerError,
-    DiDependencyError,
-    DiUninitializedResourceError,
+    DiResolutionError,
+    DiValidationError,
 )
-from .providers import (
-    AsyncFactory,
-    AsyncSingleton,
-    Dependency,
-    Factory,
-    LazyRef,
-    Resource,
-    Singleton,
-    async_factory,
-    async_singleton,
-    dependency,
-    factory,
-    resource,
-    singleton,
+from .lifetimes import (
+    Lifetime,
+    LifetimeStrategy,
+    ScopedStrategy,
+    SingletonStrategy,
+    TransientStrategy,
 )
 
 __all__ = [
     # Containers
     "Container",
-    # Providers
-    "AsyncFactory",
-    "AsyncSingleton",
-    "Dependency",
-    "Factory",
-    "LazyRef",
-    "Singleton",
-    "async_factory",
-    "async_singleton",
-    "Resource",
-    "dependency",
-    "factory",
-    "singleton",
-    "resource",
+    # Lifetimes
+    "Lifetime",
+    "LifetimeStrategy",
+    "ScopedStrategy",
+    "SingletonStrategy",
+    "TransientStrategy",
     # Exceptions
+    "DiAutoRegistrationError",
     "DiCallableError",
+    "DiCircularDependencyError",
     "DiContainerError",
-    "DiDependencyError",
-    "DiUninitializedResourceError",
+    "DiResolutionError",
+    "DiValidationError",
 ]

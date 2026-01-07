@@ -9,12 +9,12 @@ from typing import Literal, TypeAlias, override
 # fmt: off
 Layer: TypeAlias = Literal[ # Literals based from: "Where did it happen?"
     # Container layer
-    "CONTAINER",
+    "CONTAINER",    # Container instance
+    "REGISTRY",     # During registration
 
     # Provider layer
     "CALLABLE",     # Any callable that is a dependency
     "DEPENDENCY",   # Missing/unspecified, required dependencies
-    "RESOURCE",     # Improper lifecycle management of resources
 
     # Generic
     "UNKNOWN",
@@ -22,10 +22,13 @@ Layer: TypeAlias = Literal[ # Literals based from: "Where did it happen?"
 """System layers for error categorization."""
 
 Category: TypeAlias = Literal[ # Literals based from: "What type of problem?"
-    # Resource & Data
-    "MISSING",      # Expected data is missing
+    # Dependency
+    "CIRCULAR",     # Depending on it's own dependency
+    "INVALID",      # General inability to resolve dependency
+    "MISSING",      # Missing non-NoneType dependency
 
-    # Usage
+    # Runtime
+    "IMPORT",       # Importing modules
     "USAGE",        # Improper method usage
 
     # Generic
@@ -44,7 +47,7 @@ Severity: TypeAlias = Literal["WARNING", "ERROR", "CRITICAL"]
 # ======================================================================================
 
 
-class _BaseException(BaseException):
+class _BaseException(Exception):
     msg: str
     default_layer: Layer = "UNKNOWN"
     default_service: str = "UNKNOWN"
@@ -124,9 +127,23 @@ class _BaseException(BaseException):
 # ======================================================================================
 
 
+class DiAutoRegistrationError(_BaseException):
+    default_layer: Layer = "REGISTRY"
+    default_category: Category = "IMPORT"
+    default_severity: Severity = "ERROR"
+    recoverable: bool | None = False
+
+
 class DiCallableError(_BaseException):
     default_layer: Layer = "CALLABLE"
     default_category: Category = "UNEXPECTED"
+    default_severity: Severity = "ERROR"
+    recoverable: bool | None = False
+
+
+class DiCircularDependencyError(_BaseException):
+    default_layer: Layer = "DEPENDENCY"
+    default_category: Category = "CIRCULAR"
     default_severity: Severity = "ERROR"
     recoverable: bool | None = False
 
@@ -138,15 +155,15 @@ class DiContainerError(_BaseException):
     recoverable: bool | None = False
 
 
-class DiDependencyError(_BaseException):
-    default_layer: Layer = "DEPENDENCY"
+class DiResolutionError(_BaseException):
+    default_layer: Layer = "CONTAINER"
     default_category: Category = "MISSING"
-    default_severity: Severity = "CRITICAL"
+    default_severity: Severity = "ERROR"
     recoverable: bool | None = False
 
 
-class DiUninitializedResourceError(_BaseException):
-    default_layer: Layer = "RESOURCE"
-    default_category: Category = "USAGE"
+class DiValidationError(_BaseException):
+    default_layer: Layer = "DEPENDENCY"
+    default_category: Category = "INVALID"
     default_severity: Severity = "ERROR"
     recoverable: bool | None = False
