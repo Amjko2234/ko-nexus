@@ -1,68 +1,101 @@
-# pyright: reportPrivateUsage=false
+from ko_nexus import Container
 
-import pytest
-
-from ko_nexus import Container, Dependency, DiDependencyError
-
-from ._class import APIClient, ContainerWithDependency, Database, MixedContainer
-
-
-@pytest.mark.asyncio
-async def test_container_with_dependency_injection() -> None:
-    """Test basic dependency injection through container."""
-
-    container_dep: MixedContainer = MixedContainer()
-    container_with_dep: ContainerWithDependency = ContainerWithDependency(
-        mixed_container=container_dep
-    )
-
-    assert container_with_dep.mixed_container_dep.is_provided()
-    assert container_with_dep.mixed_container_dep.resolve() is container_dep
-    assert container_with_dep.mixed_container_dep() is container_dep
-
-    # Test resources
-    _ = await container_with_dep.mixed_container_dep().async_init_resources()
-    db: object = container_with_dep.mixed_container_dep().db.get()
-    apiclient: object = container_with_dep.mixed_container_dep().apiclient.get()
-    assert isinstance(db, Database)
-    assert isinstance(apiclient, APIClient)
-    _ = await container_with_dep.mixed_container_dep().async_shutdown_resources()
+from ._classes import (
+    Cache,
+    Config,
+    Database,
+    InMemoryRepository,
+    IRepository,
+    UserService,
+)
 
 
-def test_container_missing_dependency_raises() -> None:
-    """Test error when dependency is not provided to container."""
+def test_composition_root_pattern() -> None:
+    """Test typical composition root pattern."""
 
-    class ContainerWithMissingDependency(Container):
-        __name__: str = "ContainerWithMissingDependency"
+    def create_container() -> Container:
+        container: Container = Container()
 
-        def __init__(self, mixed_container: MixedContainer) -> None:
-            self.mixed_container_dep: Dependency[MixedContainer] = Dependency[
-                MixedContainer
-            ](name="mixed_container_dependency")
-            # Not specified `__init__(mixed_container_dep=mixed_container)`
-            # means that it isn't injected
-            super().__init__()
+        # Register infrastructure
+        container.register(Config, lifetime="singleton")
+        container.register(Database, lifetime="singleton")
+        container.register(Cache, lifetime="singleton")
 
-    container_dep: MixedContainer = MixedContainer()
-    with pytest.raises(
-        DiDependencyError,
-        match="Container `ContainerWithMissingDependency` has missing dependencies",
-    ):
-        _ = ContainerWithMissingDependency(mixed_container=container_dep)
+        # Pre-resolve config for conditional registration
+        config: object = container.resolve(Config)
+
+        # Conditional registration based on config
+        if config.value == "test_config":
+            container.register(
+                IRepository, implementation=InMemoryRepository, lifetime="singleton"
+            )
+        else:
+            container.register(IRepository, lifetime="singleton")
+
+        # Register services
+        container.register(UserService, UserService, lifetime="scoped")
+
+        container.validate()
+        return container
+
+    container: Container = create_container()
+    service: object = container.resolve(UserService)
+
+    assert isinstance(service, UserService)
+    assert isinstance(service.db, Database)
+    assert isinstance(service.cache, Cache)
 
 
-def test_container_undeclared_dependency_raises() -> None:
-    """Test error raised when providing an undeclared dependency to the container."""
+def test_scope_isolation(container: Container) -> None:
+    """Test scoped lifetime isolation."""
 
-    class ContainerWithUndeclaredDependency(Container):
-        __name__: str = "ContainerWithUndeclaredDependency"
+    container.register(Config, lifetime="scoped")
 
-        def __init__(self, mixed_container: MixedContainer) -> None:
-            super().__init__(mixed_container_dep=mixed_container)
+    # First scope
+    config1: object = container.resolve(Config)
+    config2: object = container.resolve(Config)
+    assert config1 is config2
 
-    container_dep: MixedContainer = MixedContainer()
-    with pytest.raises(
-        DiDependencyError,
-        match="Object `mixed_container_dep` is not a declared dependency",
-    ):
-        _ = ContainerWithUndeclaredDependency(mixed_container=container_dep)
+    # Clear and new scope
+    container.clear_scoped()
+    config3: object = container.resolve(Config)
+    assert config3 is not config1
+
+
+def test_mixed_lifetimes_complex_graph(container: Container) -> None:
+    """Test complex dependency graph with mixed lifetimes."""
+
+    container.register(Config, lifetime="singleton")
+    container.register(Database, lifetime="scoped")
+    container.register(Cache, lifetime="transient")
+    container.register(UserService, lifetime="scoped")
+
+    service1: object = container.resolve(UserService)
+    service2: object = container.resolve(UserService)
+
+    # Same service instance (scoped)
+    assert service1 is service2
+
+    # Same database (scoped)
+    assert service1.db is service2.db
+
+    # Same config (singleton)
+    assert service1.config is service2.config
+
+    # Different cache (transient)
+    # Note: `Cache` is resolved once during `UserService` construction
+    # so they'll be the same within the same `UserService` instance
+    assert service1.cache is service2.cache
+
+    # Clear scope
+    container.clear_scoped()
+    service3: object = container.resolve(UserService)
+
+    # Different service (new scope)
+    assert service3 is not service1
+
+    # Different database (new scope)
+    assert service3.db is not service1.db
+
+    # Same config (singleton across scopes)
+    assert service3.config is service1.config
