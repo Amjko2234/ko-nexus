@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ko-nexus"
-version = "1.0.2"
-description = "Amjko's dependency injection container for Python."
+version = "1.0.0"
+description = "Amjko's auto-wiring dependency injection container for Python."
 readme = "README.md"
 authors = [{ name = "Amjko2234", email = "amjko2234@gmail.com" }]
 license = { file = "MIT" }
-requires-python = ">=3.14.0"
+requires-python = ">=3.10.0"
 dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -21,7 +21,6 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Typing :: Typed",
 ]
 
