@@ -50,7 +50,7 @@ Severity: TypeAlias = Literal["WARNING", "ERROR", "CRITICAL"]
 class _BaseException(Exception):
     msg: str
     default_layer: Layer = "UNKNOWN"
-    default_service: str = "UNKNOWN"
+    default_service: str = "unknown"
     default_category: Category = "UNKNOWN"
     default_severity: Severity = "ERROR"
     recoverable: bool | None = None
@@ -75,7 +75,9 @@ class _BaseException(Exception):
         self.user_msg: str = user_message.strip() if user_message else ""
 
         layer_: Layer = layer or self.default_layer
-        service_: str = service.strip().upper() if service else self.default_service
+        # Don't `upper()` so camelNaming doesn't turn into UPPERNAMING, which is
+        # difficult to read
+        service_: str = service.strip() if service else self.default_service
         category_: Category = category or self.default_category
         severity_: Severity = severity or self.default_severity
         self.code: str = self._generate_code(
@@ -84,7 +86,7 @@ class _BaseException(Exception):
             category=category_,
             severity=severity_,
         )
-        self.msg_code: str = f"{self.msg} >> {self.code}"
+        self.msg_code: str = f"{self.msg}\n>> {self.code}"
 
         # Recoverability (value upon call has overwriting priority)
         if isinstance(recoverable, bool):
@@ -145,13 +147,6 @@ class DiCircularDependencyError(_BaseException):
     default_layer: Layer = "DEPENDENCY"
     default_category: Category = "CIRCULAR"
     default_severity: Severity = "ERROR"
-    recoverable: bool | None = False
-
-
-class DiContainerError(_BaseException):
-    default_layer: Layer = "CONTAINER"
-    default_category: Category = "USAGE"
-    default_severity: Severity = "CRITICAL"
     recoverable: bool | None = False
 
 
