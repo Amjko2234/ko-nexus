@@ -27,10 +27,14 @@ A lightweight, auto-wiring dependency injection container for Python with type-h
     - [Asynchronous Resolution](#asynchronous-resolution)
 8. [Type Safety](#type-safety)
 9. [Real-World Example](#real-world-example)
-10. [Philosophy](#philosophy)
-11. [Error Handling](#error-handling)
-12. [Testing](#testing)
+10. [Error Handling](#error-handling)
+11. [Testing](#testing)
+12. [Philosophy](#philosophy)
 13. [For Contributors](#for-contributors)
+    - [Development setup](#development-setup)
+    - [Running Tests](#running-tests)
+    - [Code Style](#code-style)
+14. [License](#license)
 
 ---
 
@@ -73,6 +77,18 @@ I needed a DI container that:
 ```bash
 pip install git+https://github.com/Amjko2234/ko-nexus.git
 ```
+
+### From Source
+
+```bash
+git clone https://github.com/Amjko2234/ko-nexus.git
+cd ko-log
+pip install -e .
+```
+
+### Requirements
+
+- Python >= 3.14
 
 ---
 
@@ -205,6 +221,7 @@ assert handler1 is not handler2  # Different instances
 ```
 
 **Scoped** - One instance per scope (cleared with `container.clear_scoped()`)
+
 ```python
 container.register(UserService, lifetime="scoped")
 service1 = container.resolve(UserService)
@@ -441,40 +458,52 @@ if __name__ == "__main__":
 
 ---
 
-## Philosophy
-
-This is a personal tool built for practical use, not a framework. It follows these simple principles:
-
-1. **Explicit Composition Root** - all wiring in one place, not scattered across codebases
-2. **Type Safety First** - designed for static analysis and IDE support
-3. **Auto-Wiring by Default** - still flexible for manual wiring only when needed
-4. **Pythonic Patterns** - context managers, protocols, type hints
-5. **Minimal Magic** - clear, inspectable behavior
-
----
-
 ## Error Handling
 
-Ko-Nexus provides clear error messages:
+Ko-Nexus provides clear and structured error messages:
 
 ```py
+from ko_nexus import (
+    DiAutoRegistrationError,
+    DiCallableError,
+    DiCircularDependencyError,
+    DiResolutionError,
+    DiValidationError,
+)
+
+# DiAutoRegistrationError - problem with auto registering multiple modules
+# Error:
+# >> REGISTRY::Container::IMPORT::ERROR
+
+# DiCallableError - factory/cleanup functon raises
+await container.async_shutdown_resources()
+# Error: Errors raised while shutting down resources:
+#     - Error 1: An awaitable resource cleanup for instance `<module.Class at 0x...>` can not be called with `shutdown_resources`. Skipped it
+#     - Error 2: An exception occured when cleaning up resource for instance `<module.Class at 0x...>`: Invalid configuration value
+# >> CALLABLE::Container::UNEXPECTED::ERROR
+
+# DiCircularDependencyError - circular dependencies
+container.resolve(ServiceA)
+# Error: Circular dependency detected: `ServiceA -> ServiceB -> ServiceA`
+# >> DEPENDENCY::Container::CIRCULAR::ERROR
+
 # DiResolutionError - type not registered
 container.resolve(UnregisteredType)
 # Error: Interface type `UnregisteredType` is not registered
-
-# DiCircularDependencyError - circular dependencies
-# Error: Circular dependency detected: `ServiceA -> ServiceB -> ServiceA`
+# >> DEPENDENCY::Container::MISSING:ERROR
 
 # DiValidationError - missing dependencies
 container.validate()
 # Error: Error found during container validation:
 #     - Error 1: UserService: Cannot resolve parameter `cache` of type `ICache`
+# >> DEPENDENCY::Container::INVALID::ERROR
 
-# DiCallableError - factory/cleanup functon raises
-await container.async_shutdown_resources()
-# Errors: Errors raised while shutting down resources:
-#     - Error 1: An awaitable resource cleanup for instance `<module.Class at 0x...>` can not be called with `shutdown_resources`. Skipped it
-#     - Error 2: An exception occured when cleaning up resource for instance `<module.Class at 0x...>`: Invalid configuration value
+```
+
+**Error code format:**
+
+```txt
+LAYER::Service::CATEGORY::SEVERITY[::RECOVERABLE]
 ```
 
 ---
@@ -503,6 +532,18 @@ def test_use_service() -> None:
 
 ---
 
+## Philosophy
+
+This is a personal tool built for practical use, not a framework. It follows these simple principles:
+
+1. **Explicit Composition Root** - all wiring in one place, not scattered across codebases
+2. **Type Safety First** - designed for static analysis and IDE support
+3. **Auto-Wiring by Default** - still flexible for manual wiring only when needed
+4. **Pythonic Patterns** - context managers, protocols, type hints
+5. **Minimal Magic** - clear, inspectable behavior
+
+---
+
 ## For Contributors
 
 While this is primarily a personal project, I'm open to:
@@ -512,8 +553,37 @@ While this is primarily a personal project, I'm open to:
 - Performance optimizations
 - Feature requests (with clear use cases)
 
-If you find it useful, that's reward enough. ✨
+*If you find it useful, that's reward enough.* ✨
+
+### Development Setup
+
+```bash
+git clone https://github.com/Amjko2234/ko-nexus.git
+cd ko-log
+python -m venv .venv
+source .venv/bin/active # or .venv/Scripts/Activate on Windows
+
+pip install -e ".[dev]"
+```
+
+### Running Tests
+
+```bash
+pytest tests/ -vv
+```
+
+### Code Style
+
+- Formatter: `black`, `isort`
+- Linter: `ruff`
+- Type Checker: `basedpyright`
 
 ---
 
-*Built for practical use, shared in the rare case it helps others build better software.* 🙂
+## License
+
+MIT License. See [LICENSE](LICENSE.rst) for details.
+
+---
+
+*Built for practical use, shared in the case it helps others build better software.* 🙂
