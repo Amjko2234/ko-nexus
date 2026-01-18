@@ -34,7 +34,9 @@ def test_missing_dependency_parameter(container: Container) -> None:
         def __init__(self, unknown: Config) -> None:
             self.unknown: Config = unknown
 
-    container.register(MissingDepService, MissingDepService, lifetime="transient")
+    container.register(
+        MissingDepService, implementation=MissingDepService, lifetime="transient"
+    )
 
     with pytest.raises(DiResolutionError, match="Cannot resolve parameter"):
         _ = container.resolve(MissingDepService)
@@ -44,7 +46,7 @@ def test_validation_catches_errors(container: Container) -> None:
     """Test validation catches configuration errors."""
 
     container.register(Config, lifetime="singleton")
-    container.register(UserService, UserService, lifetime="transient")
+    container.register(UserService, implementation=UserService, lifetime="transient")
     # Missing Database and Cache registrations
 
     with pytest.raises(DiValidationError):
@@ -54,7 +56,9 @@ def test_validation_catches_errors(container: Container) -> None:
 def test_validation_success(configured_container: Container) -> None:
     """Test validation passes for valid configuration."""
 
-    configured_container.register(UserService, UserService, lifetime="transient")
+    configured_container.register(
+        UserService, implementation=UserService, lifetime="transient"
+    )
 
     # Should not raise
     configured_container.validate()
