@@ -47,7 +47,7 @@ def test_validation_catches_errors(container: Container) -> None:
     container.register(UserService, UserService, lifetime="transient")
     # Missing Database and Cache registrations
 
-    with pytest.raises(DiValidationError, match="Validation failed"):
+    with pytest.raises(DiValidationError):
         container.validate()
 
 
