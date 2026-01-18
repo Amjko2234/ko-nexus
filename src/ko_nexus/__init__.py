@@ -3,7 +3,6 @@ from .exceptions import (
     DiAutoRegistrationError,
     DiCallableError,
     DiCircularDependencyError,
-    DiContainerError,
     DiResolutionError,
     DiValidationError,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "DiAutoRegistrationError",
     "DiCallableError",
     "DiCircularDependencyError",
-    "DiContainerError",
     "DiResolutionError",
     "DiValidationError",
 ]
