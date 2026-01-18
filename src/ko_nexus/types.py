@@ -9,6 +9,8 @@ AsyncFactoryType: TypeAlias = Callable[..., Awaitable[T]]
 CleanupType: TypeAlias = Callable[[T], None]
 AsyncCleanupType: TypeAlias = Callable[[T], Awaitable[None]]
 
+StackKey: TypeAlias = tuple[type[object], str | None]
+
 # ======================================================================================
 #   Generic
 # ======================================================================================

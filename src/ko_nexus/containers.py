@@ -27,6 +27,7 @@ from .exceptions import (
 from .lifetimes import (
     Lifetime,
     LifetimeStrategy,
+    NamedRegistrations,
     RegistrationMetadata,
     ScopedStrategy,
     SingletonStrategy,
@@ -40,6 +41,7 @@ from .types import (
     ExcType,
     ExcValue,
     FactoryType,
+    StackKey,
 )
 
 T = TypeVar(name="T")
@@ -53,13 +55,13 @@ class Container:
     """
 
     def __init__(self) -> None:
-        self._registry: dict[type[object], RegistrationMetadata] = {}
+        self._registry: dict[type[object], NamedRegistrations] = {}
         self._strategies: dict[Lifetime, LifetimeStrategy[object]] = {
             "singleton": SingletonStrategy[object](),
             "transient": TransientStrategy[object](),
             "scoped": ScopedStrategy[object](),
         }
-        self._resolution_stack: list[type[object]] = []
+        self._resolution_stack: list[StackKey] = []
 
     # ----------------------------------------------------------------------------------
     #   Context manager
@@ -104,6 +106,7 @@ class Container:
         interface: type[T],
         /,
         implementation: type[T] | FactoryType[T] | AsyncFactoryType[T] | None = None,
+        name: str | None = None,
         cleanup: CleanupType[T] | AsyncCleanupType[T] | None = None,
         lifetime: Lifetime = "transient",
     ) -> None:
@@ -113,37 +116,41 @@ class Container:
             implementation = interface
 
         is_async: bool = inspect.iscoroutinefunction(implementation)
-        self._registry[interface] = RegistrationMetadata(
+        metadata: RegistrationMetadata = RegistrationMetadata(
             lifetime=lifetime,
             factory=implementation,
             cleanup=cleanup,  # pyright: ignore[reportArgumentType]
             is_async=is_async,
         )
+        self._set_in_registry(interface, metadata, name)
 
     def register_instance(
         self,
         interface: type[T],
         /,
         instance: T,
+        name: str | None = None,
     ) -> None:
         """Register a pre-existing instance (always a singleton)."""
 
-        self._registry[interface] = RegistrationMetadata(
+        metadata: RegistrationMetadata = RegistrationMetadata(
             lifetime="singleton",
             factory=lambda: instance,
             instance=instance,
         )
+        self._set_in_registry(interface, metadata, name)
 
     def register_factory(
         self,
         interface: type[T],
         /,
         factory: FactoryType[T] | AsyncFactoryType[T],
+        name: str | None = None,
         lifetime: Lifetime = "transient",
     ) -> None:
         """Register a factory function for creating instances."""
 
-        self.register(interface, implementation=factory, lifetime=lifetime)
+        self.register(interface, implementation=factory, name=name, lifetime=lifetime)
 
     def auto_register_module(
         self,
@@ -241,7 +248,7 @@ class Container:
     #   Resolving
     # ----------------------------------------------------------------------------------
 
-    def resolve(self, interface: type[T], /) -> T:
+    def resolve(self, interface: type[T], /, name: str | None = None) -> T:
         """
         Resolve a dependency by type (sync-only).
 
@@ -256,14 +263,25 @@ class Container:
                 service=self.__class__.__name__,
             )
 
-        if interface in self._resolution_stack:
-            cycle: str = " -> ".join(t.__name__ for t in self._resolution_stack)
-            raise DiCircularDependencyError(
-                f"Circular dependency detected: `{cycle} -> {interface.__name__}`",
+        if not self._registry[interface].has(name):
+            name_str: str = f" with name `{name}`" if name else ""
+            raise DiResolutionError(
+                f"Interface type `{interface.__name__}`{name_str} is not registered",
                 service=self.__class__.__name__,
             )
 
-        self._resolution_stack.append(interface)
+        stack_key: StackKey = (interface, name)
+        if stack_key in self._resolution_stack:
+            cycle: str = " -> ".join(
+                f"{t.__name__}({n or 'default'})" for t, n in self._resolution_stack
+            )
+            raise DiCircularDependencyError(
+                f"Circular dependency detected: `{cycle} ->"
+                + f" {interface.__name__}({name or 'default'})`",
+                service=self.__class__.__name__,
+            )
+
+        self._resolution_stack.append(stack_key)
         try:
             metadata: RegistrationMetadata = self._registry[interface]
             strategy: LifetimeStrategy[object] = self._strategies[metadata.lifetime]
@@ -276,7 +294,7 @@ class Container:
         finally:
             _ = self._resolution_stack.pop()
 
-    async def async_resolve(self, interface: type[T], /) -> T:
+    async def async_resolve(self, interface: type[T], /, name: str | None = None) -> T:
         """
         Resolve a dependency by type (sync & async).
 
@@ -291,14 +309,25 @@ class Container:
                 service=self.__class__.__name__,
             )
 
-        if interface in self._resolution_stack:
-            cycle: str = " -> ".join(t.__name__ for t in self._resolution_stack)
-            raise DiCircularDependencyError(
-                f"Circular dependency detected: `{cycle} -> {interface.__name__}`",
+        if not self._registry[interface].has(name):
+            name_str: str = f" with name `{name}`" if name else ""
+            raise DiResolutionError(
+                f"Interface type `{interface.__name__}`{name_str} is not registered",
                 service=self.__class__.__name__,
             )
 
-        self._resolution_stack.append(interface)
+        stack_key: StackKey = (interface, name)
+        if stack_key in self._resolution_stack:
+            cycle: str = " -> ".join(
+                f"{t.__name__}({n or 'default'})" for t, n in self._resolution_stack
+            )
+            raise DiCircularDependencyError(
+                f"Circular dependency detected: `{cycle} ->"
+                + f" {interface.__name__}({name or 'default'})`",
+                service=self.__class__.__name__,
+            )
+
+        self._resolution_stack.append(stack_key)
         try:
             metadata: RegistrationMetadata = self._registry[interface]
             strategy: LifetimeStrategy[object] = self._strategies[metadata.lifetime]
@@ -519,24 +548,25 @@ class Container:
         """
 
         errors: list[str] = []
-        for metadata in reversed[RegistrationMetadata](
-            list[RegistrationMetadata](self._registry.values())
-        ):
-            if (metadata.cleanup is not None) and (metadata.instance is not None):
-                if inspect.iscoroutinefunction(metadata.cleanup):
-                    errors.append(
-                        f"An awaitable resource cleanup for instance `{metadata.instance!s}`"
-                        + " can not be called with `shutdown_resources`. Skipped it",
-                    )
-                    continue
+        for named_regs in reversed(list[NamedRegistrations](self._registry.values())):
+            for metadata in reversed(
+                list[RegistrationMetadata](named_regs.all_metadata())
+            ):
+                if (metadata.cleanup is not None) and (metadata.instance is not None):
+                    if inspect.iscoroutinefunction(metadata.cleanup):
+                        errors.append(
+                            f"An awaitable resource cleanup for instance `{metadata.instance!s}`"
+                            + " can not be called with `shutdown_resources`. Skipped it",
+                        )
+                        continue
 
-                try:
-                    _ = metadata.cleanup(metadata.instance)
-                except Exception as exc:
-                    errors.append(
-                        "An exception occured when cleaning up resource for"
-                        + f" instance `{metadata.instance!s}`: {exc}",
-                    )
+                    try:
+                        _ = metadata.cleanup(metadata.instance)
+                    except Exception as exc:
+                        errors.append(
+                            "An exception occured when cleaning up resource for"
+                            + f" instance `{metadata.instance!s}`: {exc}",
+                        )
 
         if errors:
             err_msg: str = self._construct_shutdown_resource_err_msg(errors)
@@ -551,20 +581,21 @@ class Container:
         """
 
         errors: list[str] = []
-        for metadata in reversed[RegistrationMetadata](
-            list[RegistrationMetadata](self._registry.values())
-        ):
-            if (metadata.cleanup is not None) and (metadata.instance is not None):
-                try:
-                    if inspect.iscoroutinefunction(metadata.cleanup):
-                        _ = await metadata.cleanup(metadata.instance)  # pyright: ignore[reportAny]
-                    else:
-                        _ = metadata.cleanup(metadata.instance)
-                except Exception as exc:
-                    errors.append(
-                        "An exception occured when cleaning up resource for"
-                        + f" instance `{metadata.instance!s}`: {exc}",
-                    )
+        for named_regs in reversed(list[NamedRegistrations](self._registry.values())):
+            for metadata in reversed(
+                list[RegistrationMetadata](named_regs.all_metadata())
+            ):
+                if (metadata.cleanup is not None) and (metadata.instance is not None):
+                    try:
+                        if inspect.iscoroutinefunction(metadata.cleanup):
+                            _ = await metadata.cleanup(metadata.instance)  # pyright: ignore[reportAny]
+                        else:
+                            _ = metadata.cleanup(metadata.instance)
+                    except Exception as exc:
+                        errors.append(
+                            "An exception occured when cleaning up resource for"
+                            + f" instance `{metadata.instance!s}`: {exc}",
+                        )
 
         if errors:
             err_msg: str = self._construct_shutdown_resource_err_msg(errors)
@@ -592,11 +623,12 @@ class Container:
         """
 
         errors: list[str] = []
-        for interface in self._registry.keys():
-            try:
-                self._validate_type(interface, visited=set[type[object]]())
-            except (DiResolutionError, DiCircularDependencyError) as exc:
-                errors.append(f"Interface `{interface.__name__}`: {exc}")
+        for interface, named_regs in self._registry.items():
+            if named_regs.default is not None:
+                try:
+                    self._validate_type(interface, name=None, visited=set[StackKey]())
+                except (DiResolutionError, DiCircularDependencyError) as exc:
+                    errors.append(f"Interface `{interface.__name__}`: {exc}")
 
         if errors:
             _errs: str = "Errors" if len(errors) > 1 else "Error"
@@ -609,7 +641,8 @@ class Container:
     def _validate_type(
         self,
         interface: type[object],
-        visited: set[type[object]],
+        name: str | None,
+        visited: set[tuple[type[object], str | None]],
     ) -> None:
         """
         Validate a type can be resolved without actually constructing it.
@@ -618,11 +651,15 @@ class Container:
             * `DiCircularDependencyError`: If circular dependency is detected
             * `DiResolutionError`: If type can not be resolved
         """
+        stack_key: StackKey = (interface, name)
 
-        if interface in visited:
-            cycle: str = " -> ".join(t.__name__ for t in visited)
+        if stack_key in visited:
+            cycle: str = " -> ".join(
+                f"{t.__name__}({n or 'default'})" for t, n in self._resolution_stack
+            )
             raise DiCircularDependencyError(
-                f"Circular dependency detected: `{cycle} -> {interface.__name__}`",
+                f"Circular dependency detected: `{cycle} ->"
+                + f" {interface.__name__}({name or 'default'})`",
                 service=self.__class__.__name__,
             )
 
@@ -632,9 +669,16 @@ class Container:
                 service=self.__class__.__name__,
             )
 
-        visited.add(interface)
+        if not self._registry[interface].has(name):
+            name_str: str = f" with name `{name}`" if name else ""
+            raise DiResolutionError(
+                f"Interface type `{interface.__name__}`{name_str} is not registered",
+                service=self.__class__.__name__,
+            )
 
-        metadata: RegistrationMetadata = self._registry[interface]
+        visited.add(stack_key)
+
+        metadata: RegistrationMetadata = self._registry[interface].get(name)  # pyright: ignore[reportAssignmentType]
         factory: FactoryType[object] | AsyncFactoryType[object] = metadata.factory
         is_class: bool = inspect.isclass(object=factory)
 
@@ -688,7 +732,9 @@ class Container:
 
             # Recursively validate dependencies
             if param_type in self._registry:
-                self._validate_type(interface=param_type, visited=visited.copy())
+                self._validate_type(
+                    interface=param_type, name=None, visited=visited.copy()
+                )
             elif param.default is inspect.Parameter.empty:  # pyright: ignore[reportAny]
                 raise DiResolutionError(
                     f"Cannot resolve parameter `{param_name}` of type"
@@ -696,7 +742,7 @@ class Container:
                     service=self.__class__.__name__,
                 )
 
-        visited.remove(interface)
+        visited.remove(stack_key)
 
     # ----------------------------------------------------------------------------------
     #   Public helper
@@ -708,3 +754,14 @@ class Container:
         strategy: LifetimeStrategy[object] = self._strategies["scoped"]
         if isinstance(strategy, ScopedStrategy):
             strategy.clear_scope()
+
+    # ----------------------------------------------------------------------------------
+    #   Private helper
+    # ----------------------------------------------------------------------------------
+
+    def _set_in_registry(
+        self, interface: type[T], metadata: RegistrationMetadata, name: str | None
+    ) -> None:
+        if interface not in self._registry:
+            self._registry[interface] = NamedRegistrations()
+        self._registry[interface].set(metadata, name)

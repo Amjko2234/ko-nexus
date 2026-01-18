@@ -27,6 +27,49 @@ class RegistrationMetadata:
     resolved_params: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass
+class NamedRegistrations:
+    """Container for default and named registrations of an interface."""
+
+    default: RegistrationMetadata | None = None
+    named: dict[str, RegistrationMetadata] = field(default_factory=dict)
+
+    def get(self, name: str | None = None, /) -> RegistrationMetadata | None:
+        """Get registration by name, or default if name is `None`."""
+
+        if name is None:
+            return self.default
+        return self.named.get(name)
+
+    def has(self, name: str | None = None, /) -> bool:
+        """Check if registration exists for a given name."""
+
+        if name is None:
+            return self.default is not None
+        return name in self.named
+
+    def set(
+        self,
+        metadata: RegistrationMetadata,
+        name: str | None = None,
+    ) -> None:
+        """Set registration by name, or as default if name is `None`."""
+
+        if name is None:
+            self.default = metadata
+        else:
+            self.named[name] = metadata
+
+    def all_metadata(self) -> list[RegistrationMetadata]:
+        """Get all registered metadata (default + all named)."""
+
+        result: list[RegistrationMetadata] = []
+        if self.default is not None:
+            result.append(self.default)
+        result.extend(self.named.values())
+        return result
+
+
 # =====================================================================================
 #   Strategies
 # =====================================================================================
