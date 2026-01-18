@@ -160,7 +160,7 @@ class Container:
         exclude_abstract: bool = True,
     ) -> None:
         """
-        Auto-register all classes from a module.
+        Auto-register all classes from a module (as default registrations).
 
         Raises:
             * `DiAutoRegistrationError`: If module can not be imported
@@ -199,7 +199,7 @@ class Container:
         recursive: bool = True,
     ) -> None:
         """
-        Auto-register all classes from a package (multiple modules).
+        Auto-register all classes from a package (as default registrations).
 
         Raises:
             * `DiAutoRegistrationError`: If package can not be imported
@@ -250,7 +250,7 @@ class Container:
 
     def resolve(self, interface: type[T], /, name: str | None = None) -> T:
         """
-        Resolve a dependency by type (sync-only).
+        Resolve a dependency by type (sync-only). Always uses default registrations.
 
         Raises:
             * `DiResolutionError`: If type can not be resolved
@@ -283,7 +283,7 @@ class Container:
 
         self._resolution_stack.append(stack_key)
         try:
-            metadata: RegistrationMetadata = self._registry[interface]
+            metadata: RegistrationMetadata = self._registry[interface].get(name)  # pyright: ignore[reportAssignmentType]
             strategy: LifetimeStrategy[object] = self._strategies[metadata.lifetime]
 
             def resolver() -> object:
@@ -296,7 +296,7 @@ class Container:
 
     async def async_resolve(self, interface: type[T], /, name: str | None = None) -> T:
         """
-        Resolve a dependency by type (sync & async).
+        Resolve a dependency by type (sync & async). Always uses default registrations.
 
         Raises:
             * `DiResolutionError`: If type can not be resolved
@@ -329,7 +329,7 @@ class Container:
 
         self._resolution_stack.append(stack_key)
         try:
-            metadata: RegistrationMetadata = self._registry[interface]
+            metadata: RegistrationMetadata = self._registry[interface].get(name)  # pyright: ignore[reportAssignmentType]
             strategy: LifetimeStrategy[object] = self._strategies[metadata.lifetime]
 
             async def resolver() -> object:
@@ -342,7 +342,7 @@ class Container:
 
     def _construct(self, metadata: RegistrationMetadata) -> object:
         """
-        Auto-wire dependencies (sync-only).
+        Auto-wire dependencies (sync-only). Default registrations only.
 
         Raises:
             * `DiResolutionError`: If construction fails
@@ -391,8 +391,7 @@ class Container:
 
             param_type: type[object] = type_hints[param_name]
 
-            # ?OLD: Handle `Optional[Type]` or `(Union[Type, None )`
-            # ?NEW: Handle `Type | None | ...`
+            # Handle `Optional` types
             origin: object | None = get_origin(tp=param_type)
             if origin is Union:  # pyright: ignore[reportDeprecated]
                 args: tuple[type[object], ...] = get_args(tp=param_type)
@@ -405,7 +404,6 @@ class Container:
 
                     if not non_none_types:
                         # Pure NoneTypes, use default or `None`
-                        # func_kwargs[param_name] = self.resolve(non_none_types[0])
                         func_kwargs[param_name] = (
                             param.default  # pyright: ignore[reportAny]
                             if param.default is not Parameter.empty  # pyright: ignore[reportAny]
@@ -442,7 +440,7 @@ class Container:
 
     async def _async_construct(self, metadata: RegistrationMetadata) -> object:
         """
-        Auto-wire dependencies (sync & async).
+        Auto-wire dependencies (sync & async). Default registrations only.
 
         Raises:
             * `DiResolutionError`: If construction fails
@@ -495,8 +493,7 @@ class Container:
 
             param_type: type[object] = type_hints[param_name]
 
-            # ?OLD: Handle `Optional[Type]` or `(Union[Type, None )`
-            # ?NEW: Handle `Type | None | ...`
+            # Handle `Optional` types
             origin: object | None = get_origin(tp=param_type)
             if isinstance(origin, UnionType):
                 args: tuple[type[object], ...] = get_args(tp=param_type)
@@ -616,6 +613,7 @@ class Container:
     def validate(self) -> None:
         """
         Validate all registrations can be resolved.
+        Named registrations are opt-in and not validated automatically.
         Useful to run at startup to catch configuration errors early.
 
         Raises:
@@ -632,7 +630,7 @@ class Container:
 
         if errors:
             _errs: str = "Errors" if len(errors) > 1 else "Error"
-            err_msg: str = f"{_errs} raised during container validation:\n"
+            err_msg: str = f"{_errs} raised during container validation:"
             for index, err in enumerate[str](errors):
                 err_msg += f"\n    Error {index}: {err}"
 
@@ -644,13 +642,8 @@ class Container:
         name: str | None,
         visited: set[tuple[type[object], str | None]],
     ) -> None:
-        """
-        Validate a type can be resolved without actually constructing it.
+        """Validate a type can be resolved without actually constructing it."""
 
-        Raises:
-            * `DiCircularDependencyError`: If circular dependency is detected
-            * `DiResolutionError`: If type can not be resolved
-        """
         stack_key: StackKey = (interface, name)
 
         if stack_key in visited:
@@ -737,8 +730,8 @@ class Container:
                 )
             elif param.default is inspect.Parameter.empty:  # pyright: ignore[reportAny]
                 raise DiResolutionError(
-                    f"Cannot resolve parameter `{param_name}` of type"
-                    + f" `{param_type.__name__}` for interface of type `{interface.__name__}`",
+                    f"Cannot resolve parameter `{param_name}` of type `{param_type.__name__}`"
+                    + f" for interface of type `{interface.__name__}`",
                     service=self.__class__.__name__,
                 )
 
