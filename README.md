@@ -18,6 +18,7 @@ A lightweight, auto-wiring dependency injection container for Python with type-h
     - [Auto-Wiring](#auto-wiring)
     - [Lifetime Strategies](#lifetime-strategies)
     - [Interface Binding](#interface-binding)
+    - [Named Registrations](#named-registrations)
     - [Optional Dependencies](#optional-dependencies)
     - [Manual Wiring](#manual-wiring)
     - [Resource Lifecycle](#resource-lifecycle)
@@ -25,6 +26,7 @@ A lightweight, auto-wiring dependency injection container for Python with type-h
     - [Validation](#validation)
     - [Auto-Registration](#auto-registration)
     - [Asynchronous Resolution](#asynchronous-resolution)
+    - [Complex Named Registrations](#named-registrations-for-complex-scenarios)
 8. [Type Safety](#type-safety)
 9. [Real-World Example](#real-world-example)
 10. [Error Handling](#error-handling)
@@ -61,6 +63,7 @@ I needed a DI container that:
 - ✅ **Lifetime Management** - singleton, transient, and scoped lifetimes
 - ✅ **Async Support** - asynchronous factories and resolutions
 - ✅ **Interface Binding** - map `Protocol`/`ABC` to implementations
+- ✅ **Named Registrations** - register multiple implementations of same interface within names
 - ✅ **Circular Dependency Detection** - catches cycles at resolution time
 - ✅ **Resource Lifecycle**  - automatic shutdown via context managers
 - ✅ **Optional Dependencies** - handles `Type | None`, `Optional[None]`, or `Union[Type, None]` gracefully
@@ -74,8 +77,10 @@ I needed a DI container that:
 
 ## Installation
 
+Do not forget to change the placeholder `<tag>` with your desired release version:
+
 ```bash
-pip install git+https://github.com/Amjko2234/ko-nexus.git
+pip install git+https://github.com/Amjko2234/ko-nexus.git@<tag>
 ```
 
 ### From Source
@@ -146,7 +151,14 @@ def create_container() -> Container:
     container.register(DatabasePool, lifetime="singleton")
     
     # Register interface bindings
-    container.register(ICache, implementation=RedisCache, lifetime="singleton")
+    container.register(  # Uses default registration
+        ICache, implementation=RedisCache, lifetime="singleton"
+    )
+    
+    # Register implementations with names
+    container.register(  # Does not use default registration
+        ICache, implementation=InMemoryCache, name="in_memory", lifetime="singleton"
+    )
     
     # Register services
     container.register(UserService, lifetime="scoped")
@@ -170,6 +182,9 @@ async def main():
         # Use the service
         user = await user_service.get_user("123")
         print(f"User: {user.name}")
+        
+        # Manual resolution with name
+        inmem_cache = container.resolve(ICache, name="in_memory")
     
         # Resources automatically cleaned up here
 
@@ -258,6 +273,82 @@ container.register(IRepository, implementation=PostgresRepository, lifetime="sco
 class UserService:
     def __init__(self, repo: IRepository):  # IRepository, not PostgresRepository
         self.repo = repo
+```
+
+### Named Registrations
+
+Register multiple implementations of the same interface using names for manual resolution:
+
+```py
+from typing import Protocol
+
+class ICache(Protocol):
+    def get(self, key: str) -> str | None: ...
+    def set(self, key: str, value: str) -> None: ...
+
+class RedisCache:
+    def get(self, key: str) -> str | None:
+        # Redis implementation
+        pass
+    
+    def set(self, key: str, value: str) -> None:
+        # Redis implementation
+        pass
+
+class InMemoryCache:
+    def __init__(self):
+        self.data: dict[str, str] = {}
+    
+    def get(self, key: str) -> str | None:
+        return self.data.get(key)
+    
+    def set(self, key: str, value: str) -> None:
+        self.data[key] = value
+
+# Register default for auto-wiring
+container.register(ICache, implementation=RedisCache, lifetime="singleton")
+
+# Register named variant for manual resolution
+container.register(
+    ICache, implementation=InMemoryCache, name="in_memory", lifetime="singleton"
+)
+
+# Auto-wiring uses default
+class UserService:
+    def __init__(self, cache: ICache):  # Gets `RedisCache`
+        self.cache = cache
+
+service = container.resolve(UserService)
+assert isinstance(service.cache, RedisCache)
+
+# Manual resolution uses name
+inmem_cache = container.resolve(ICache, name="in_memory")
+assert isinstance(inmem_cache, InMemoryCache)
+```
+
+**Important**: Auto-wiring always uses default registrations (non-named). As, named registrations are for explicit manual resolution only.
+
+**Uses cases**:
+
+- Multiple tenants with different database connections
+- Environment-specific configurations (dev/staging/prod)
+- Feature flags controlling implementation section
+- Different caching strategies for different purposes
+
+```py
+# Multi-tenant example
+container.register(Database, name="tenant_a", lifetime="singleton")
+container.register(Database, name="tenant_b", lifetime="singleton")
+
+# Manually wire tenant-specific services
+container.register_factory(
+    TenantService,
+    factory=lambda: TenantService(
+        db=container.resolve(Database, name="tenant_a")
+    ),
+    name="tenant_a",
+    lifetime="scoped",
+)
 ```
 
 ### Optional Dependencies
@@ -373,6 +464,34 @@ container.register_factory(LLMClient, implementation=create_llm_client, lifetime
 llm = await container.async_resolve(LLMClient)
 ```
 
+### Named Registrations for Complex Scenarios
+
+Use named registrations when you need multiple implementations of the same interface:
+
+```py
+# Environment-specific configurations
+dev_config = Config(env="dev", debug=True)
+prod_config = Config(env="prod", debug=False)
+
+container.register_instance(Config, implementation=dev_config, name="dev")
+container.register_instance(Config, implementation=prod_config, name="prod")
+
+# Resolve based on environment
+current_env = os.getenv("APP_ENV", "dev")
+config = container.resolve(Config, name=current_env)
+
+# Feature flags
+container.register(IPaymentProcessor, StripeProcessor, name="stripe")
+container.register(IPaymentProcessor, PayPalProcessor, name="paypal")
+
+def create_payment_service() -> PaymentService:
+    processor_name = feature_flags.get("payment_provider", "stripe")
+    processor = container.resolve(IPaymentProcessor, name=processor_name)
+    return PaymentService(processor)
+
+container.register_factory(PaymentService, create_payment_service)
+```
+
 ---
 
 ## Type Safety
@@ -427,6 +546,17 @@ def create_container() -> Container:
     
     # Application layer
     container.register(ChatApplication, lifetime="singleton")
+
+    # Named registrations for different environments
+    container.register(ICache, RedisCache, name="redis", lifetime="singleton")
+    container.register(ICache, InMemoryCache, name="in_memory", lifetime="singleton")
+    
+    # Conditionally select implementation
+    cache_type = config.cache_type  # "redis" or "in_memory"
+    if cache_type == "redis":
+        container.register(IMemoryStore, implementation=RedisMemoryStore, lifetime="singleton")
+    else:
+        container.register(IMemoryStore, implementation=InMemoryStore, lifetime="singleton")
     
     container.validate()
     return container
@@ -492,10 +622,16 @@ container.resolve(UnregisteredType)
 # Error: Interface type `UnregisteredType` is not registered
 # >> DEPENDENCY::Container::MISSING:ERROR
 
-# DiValidationError - missing dependencies
+# DiValidationError - missing dependencies (only checks defaults)
+container.register(Config, lifetime="singleton")
+container.register(UserService, lifetime="transient")
+container.register(Cache, name="special", lifetime="singleton")  # Named only, no default
+# Missing Database and default Cache registrations
+
 container.validate()
-# Error: Error found during container validation:
-#     - Error 1: UserService: Cannot resolve parameter `cache` of type `ICache`
+# Error: Errors found during container validation:
+#     - Error 1: UserService: Cannot resolve parameter `db` of type `Database` (no default registration)
+#     - Error 2: UserService: Cannot resolve parameter `cache` of type `Cache` (no default registration)
 # >> DEPENDENCY::Container::INVALID::ERROR
 
 ```
@@ -528,6 +664,25 @@ def test_use_service() -> None:
     
     assert service.cache is mock_cache
     assert service.db is mock_db
+```
+
+Easily test named registrations:
+
+```py
+def test_service_with_multiple_cache_implementations() -> None:
+    container = Container()
+    
+    # Register multiple cache implementations
+    container.register(ICache, MockRedisCache, lifetime="singleton")
+    container.register(ICache, MockInMemoryCache, name="inmemory", lifetime="singleton")
+    
+    # Service gets default
+    service = container.resolve(UserService)
+    assert isinstance(service.cache, MockRedisCache)
+    
+    # Manually resolve named variant
+    inmem = container.resolve(ICache, name="inmemory")
+    assert isinstance(inmem, MockInMemoryCache)
 ```
 
 ---

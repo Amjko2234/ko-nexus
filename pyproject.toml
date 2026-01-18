@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ko-nexus"
-version = "1.0.0b1"
+version = "1.01.0b1"
 description = "Amjko's auto-wiring dependency injection container for Python."
 readme = "README.md"
 authors = [{ name = "Amjko2234", email = "amjko2234@gmail.com" }]
