@@ -741,6 +741,11 @@ class Container:
     #   Public helper
     # ----------------------------------------------------------------------------------
 
+    def clear_registry(self) -> None:
+        """WARNING: Clears the registry of registered dependencies."""
+
+        self._registry.clear()
+
     def clear_scoped(self) -> None:
         """Clear all scoped instances."""
 
